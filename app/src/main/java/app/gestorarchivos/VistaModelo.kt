@@ -54,7 +54,17 @@ class VistaModelo(app: Application) : AndroidViewModel(app) {
 
     fun cambiar(cambio: (Filtros) -> Filtros) = _filtros.update(cambio)
 
-    fun limpiar() = _filtros.update { Filtros(orden = it.orden, ocultos = it.ocultos) }
+    fun limpiar() = _filtros.update { Filtros(orden = it.orden, ocultos = it.ocultos, mimes = it.mimes) }
+
+    /**
+     * Borra el archivo del móvil para siempre (no hay papelera) y lo quita del índice de Android.
+     * Devuelve true si se ha borrado.
+     */
+    suspend fun borrar(a: Archivo): Boolean {
+        val ok = withContext(Dispatchers.IO) { Repositorio.borrar(getApplication(), a) }
+        if (ok) todos.update { lista -> lista.filter { it.id != a.id } }
+        return ok
+    }
 
     private fun filtrar(lista: List<Archivo>, f: Filtros): Resultado {
         val texto = normalizar(f.texto.trim())
@@ -66,7 +76,8 @@ class VistaModelo(app: Application) : AndroidViewModel(app) {
                 (f.carpeta == null || a.carpeta == f.carpeta) &&
                 (desde == null || a.fecha >= desde) &&
                 (hasta == null || a.fecha < hasta) &&
-                (texto.isEmpty() || a.clave.contains(texto))
+                (texto.isEmpty() || a.clave.contains(texto)) &&
+                coincideMime(a.mime ?: mimeDeExtension(a.nombre), f.mimes)
         }
         val ordenados = when (f.orden) {
             Orden.RECIENTES -> filtrados.sortedByDescending { it.fecha }

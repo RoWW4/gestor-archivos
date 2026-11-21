@@ -31,6 +31,8 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
@@ -62,11 +64,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +86,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gestorarchivos.Archivo
 import app.gestorarchivos.Filtros
+import app.gestorarchivos.Inicio
 import app.gestorarchivos.Lugar
 import app.gestorarchivos.Orden
 import app.gestorarchivos.Periodo
@@ -93,17 +101,25 @@ import app.gestorarchivos.normalizar
 import app.gestorarchivos.tamanoLegible
 
 @Composable
-fun App() {
+fun App(inicio: Inicio = Inicio.Normal, onElegidos: (List<Archivo>) -> Unit = {}) {
     Tema {
         var permiso by remember { mutableStateOf(Environment.isExternalStorageManager()) }
         val vm: VistaModelo = viewModel()
+        LaunchedEffect(inicio) {
+            when (inicio) {
+                is Inicio.Elegir -> vm.cambiar { it.copy(mimes = inicio.eleccion.mimes) }
+                Inicio.Descargas -> vm.cambiar { it.copy(lugar = Lugar.DESCARGAS) }
+                Inicio.Normal -> Unit
+            }
+        }
         LifecycleResumeEffect(Unit) {
             permiso = Environment.isExternalStorageManager()
             // Al volver a la app se vuelve a leer, por si hay archivos nuevos
             if (permiso) vm.cargar()
             onPauseOrDispose { }
         }
-        if (permiso) Principal(vm) else PedirPermiso()
+        val eleccion = (inicio as? Inicio.Elegir)?.eleccion
+        if (permiso) Principal(vm, eleccion?.varios, onElegidos) else PedirPermiso()
     }
 }
 
@@ -141,8 +157,17 @@ private fun PedirPermiso() {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun Principal(vm: VistaModelo) {
+private fun Principal(
+    vm: VistaModelo,
+    // null = uso normal; true/false = otra app pide varios o un solo archivo
+    eligiendoVarios: Boolean? = null,
+    onElegidos: (List<Archivo>) -> Unit = {},
+) {
     val context = LocalContext.current
+    val alcance = rememberCoroutineScope()
+    val eligiendo = eligiendoVarios != null
+    var marcados by remember { mutableStateOf<List<Archivo>>(emptyList()) }
+    var aBorrar by remember { mutableStateOf<Archivo?>(null) }
     val f by vm.filtros.collectAsStateWithLifecycle()
     val res by vm.resultado.collectAsStateWithLifecycle()
     val cargando by vm.cargando.collectAsStateWithLifecycle()
@@ -160,7 +185,15 @@ private fun Principal(vm: VistaModelo) {
             TopAppBar(
                 title = {
                     Column {
-                        Text("Archivos", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            when {
+                                !eligiendo -> "Archivos"
+                                eligiendoVarios == true && marcados.isNotEmpty() -> "${marcados.size} elegidos"
+                                eligiendoVarios == true -> "Elige archivos"
+                                else -> "Elige un archivo"
+                            },
+                            fontWeight = FontWeight.SemiBold,
+                        )
                         Text(
                             "${res.archivos.size} archivos · ${tamanoLegible(res.tamanoTotal)}",
                             style = MaterialTheme.typography.bodySmall,
@@ -169,6 +202,9 @@ private fun Principal(vm: VistaModelo) {
                     }
                 },
                 actions = {
+                    if (eligiendo && marcados.isNotEmpty()) {
+                        IconButton(onClick = { onElegidos(marcados) }) { Icon(Icons.Filled.Check, "Aceptar") }
+                    }
                     MenuOrden(f.orden) { o -> vm.cambiar { it.copy(orden = o) } }
                     IconButton(onClick = { vm.cargar() }) { Icon(Icons.Filled.Refresh, "Actualizar") }
                     MenuMas(f.ocultos) { v -> vm.cambiar { it.copy(ocultos = v) } }
@@ -228,7 +264,7 @@ private fun Principal(vm: VistaModelo) {
                         else vm.cambiar { it.copy(periodo = p, desde = null, hasta = null) }
                     },
                 )
-                if (f != Filtros(orden = f.orden, ocultos = f.ocultos)) {
+                if (f != Filtros(orden = f.orden, ocultos = f.ocultos, mimes = f.mimes)) {
                     TextButton(onClick = { vm.limpiar() }) { Text("Quitar filtros") }
                 }
             }
@@ -244,7 +280,14 @@ private fun Principal(vm: VistaModelo) {
                     items(res.archivos, key = { it.id }) { a ->
                         Fila(
                             a,
-                            onClick = { abrir(context, a) },
+                            marcado = a in marcados,
+                            onClick = {
+                                when (eligiendoVarios) {
+                                    null -> abrir(context, a)
+                                    false -> onElegidos(listOf(a))
+                                    true -> marcados = if (a in marcados) marcados - a else marcados + a
+                                }
+                            },
                             onLongClick = { detalle = a },
                         )
                     }
@@ -260,6 +303,25 @@ private fun Principal(vm: VistaModelo) {
             onVerCarpeta = {
                 vm.cambiar { it.copy(carpeta = a.carpeta, lugar = Lugar.TODO, texto = "") }
                 detalle = null
+            },
+            onBorrar = { aBorrar = a; detalle = null },
+        )
+    }
+    aBorrar?.let { a ->
+        ConfirmarBorrar(
+            a,
+            onCancelar = { aBorrar = null },
+            onBorrar = {
+                aBorrar = null
+                alcance.launch {
+                    val ok = vm.borrar(a)
+                    marcados = marcados - a
+                    Toast.makeText(
+                        context,
+                        if (ok) "«${a.nombre}» borrado" else "No se ha podido borrar «${a.nombre}»",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
             },
         )
     }
@@ -283,9 +345,15 @@ private fun Principal(vm: VistaModelo) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Fila(a: Archivo, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun Fila(a: Archivo, marcado: Boolean = false, onClick: () -> Unit, onLongClick: () -> Unit) {
     ListItem(
-        leadingContent = { Miniatura(a) },
+        leadingContent = {
+            if (marcado) {
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Check, "Elegido", tint = MaterialTheme.colorScheme.primary)
+                }
+            } else Miniatura(a)
+        },
         headlineContent = { Text(a.nombre, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             Text(
@@ -399,7 +467,7 @@ private fun MenuMas(ocultos: Boolean, onOcultos: (Boolean) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Detalle(a: Archivo, onCerrar: () -> Unit, onVerCarpeta: () -> Unit) {
+private fun Detalle(a: Archivo, onCerrar: () -> Unit, onVerCarpeta: () -> Unit, onBorrar: () -> Unit) {
     val context = LocalContext.current
     ModalBottomSheet(onDismissRequest = onCerrar) {
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp).navigationBarsPadding()) {
@@ -429,8 +497,33 @@ private fun Detalle(a: Archivo, onCerrar: () -> Unit, onVerCarpeta: () -> Unit) 
                     Icon(Icons.Filled.Folder, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Ver carpeta")
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onBorrar,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(Icons.Filled.Delete, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Borrar")
+            }
         }
     }
+}
+
+/** Pregunta antes de borrar: el archivo se borra para siempre, no va a ninguna papelera. */
+@Composable
+private fun ConfirmarBorrar(a: Archivo, onCancelar: () -> Unit, onBorrar: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancelar,
+        icon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text("¿Borrar este archivo?") },
+        text = { Text("«${a.nombre}» (${tamanoLegible(a.tamano)}) se borrará del móvil para siempre. No se puede deshacer.") },
+        confirmButton = {
+            TextButton(
+                onClick = onBorrar,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Borrar") }
+        },
+        dismissButton = { TextButton(onClick = onCancelar) { Text("Cancelar") } },
+    )
 }
 
 @Composable

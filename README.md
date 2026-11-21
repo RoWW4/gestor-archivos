@@ -6,6 +6,8 @@ Gestor de archivos para Android, sencillo, **sin publicidad y sin acceso a inter
 - Filtra por tipo (imágenes, vídeos, audio, documentos, APK, comprimidos), por fecha y por ubicación (Descargas, Cámara, Capturas, WhatsApp…, o cualquier carpeta).
 - Ordena por fecha, nombre o tamaño.
 - Abre, «abre con» y comparte. Mantén pulsado un archivo para ver sus datos.
+- Borra archivos (pregunta antes; se borran para siempre).
+- Aparece al adjuntar o subir archivos desde otras apps y en «Ver descargas». Cómo usarla como gestor principal: [PREDETERMINADA.md](PREDETERMINADA.md).
 
 ## Descargar
 

@@ -101,4 +101,23 @@ data class Filtros(
     val hasta: Long? = null,
     val orden: Orden = Orden.RECIENTES,
     val ocultos: Boolean = false,               // mostrar archivos y carpetas que empiezan por "."
+    val mimes: List<String> = emptyList(),      // al elegir un archivo para otra app: tipos que pide (vacío = todos)
 )
+
+/**
+ * ¿El archivo es del tipo que pide otra app? Admite comodines: "image/*", "*/*".
+ * Si el archivo no tiene tipo conocido solo vale cuando se aceptan todos.
+ */
+fun coincideMime(mime: String?, pedidos: List<String>): Boolean {
+    if (pedidos.isEmpty()) return true
+    val m = mime?.lowercase(Locale.ROOT)
+    return pedidos.any { p ->
+        val q = p.lowercase(Locale.ROOT).trim()
+        when {
+            q.isEmpty() || q == "*/*" || q == "*" -> true
+            m == null -> false
+            q.endsWith("/*") -> m.startsWith(q.removeSuffix("*"))
+            else -> m == q
+        }
+    }
+}

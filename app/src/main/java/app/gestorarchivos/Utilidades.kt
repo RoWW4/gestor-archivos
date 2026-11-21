@@ -58,10 +58,13 @@ fun carpetaLegible(carpeta: String): String {
     }
 }
 
-private fun uriDe(context: Context, a: Archivo): Uri =
+fun mimeDeExtension(nombre: String): String? =
+    MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension(nombre))
+
+fun uriDe(context: Context, a: Archivo): Uri =
     FileProvider.getUriForFile(context, context.packageName + ".archivos", File(a.ruta))
 
-private fun mimeDe(a: Archivo): String =
+fun mimeDe(a: Archivo): String =
     a.mime ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension(a.nombre)) ?: "*/*"
 
 fun abrir(context: Context, a: Archivo, elegirApp: Boolean = false) {

@@ -1,5 +1,6 @@
 package app.gestorarchivos
 
+import android.content.ContentUris
 import android.content.Context
 import android.provider.MediaStore
 import java.io.File
@@ -51,6 +52,22 @@ object Repositorio {
             }
         }
         return lista
+    }
+
+    /**
+     * Borra el archivo con el permiso «Acceso a todos los archivos» y quita su entrada del índice
+     * para que no siga apareciendo en esta ni en otras apps (Galería, Fotos…).
+     */
+    fun borrar(context: Context, a: Archivo): Boolean {
+        val archivo = File(a.ruta)
+        if (archivo.isDirectory) return false
+        val borrado = !archivo.exists() || archivo.delete()
+        if (!borrado || archivo.exists()) return false
+        runCatching {
+            val uri = ContentUris.withAppendedId(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), a.id)
+            context.contentResolver.delete(uri, null, null)
+        }
+        return true
     }
 
     private fun relativa(ruta: String): String {
